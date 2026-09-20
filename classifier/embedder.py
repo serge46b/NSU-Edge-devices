@@ -18,17 +18,20 @@ class Embedder:
     __in_queue: Queue[cv2t.MatLike]
     __out_queue: Queue[np.ndarray]
     __stop_event: Event
+    __pause_event: Event
 
     def __init__(
         self,
         in_queue: Queue[cv2t.MatLike],
         out_queue: Queue[np.ndarray],
         stop_event: Event,
+        pause_event: Event,
     ):
         self.__in_queue = in_queue
         self.__out_queue = out_queue
         self.__stop_event = stop_event
         self.__model = self._load_rknn(MODEL_WEIGHTS)
+        self.__pause_event = pause_event
 
     def __del__(self):
         if self.__model:
@@ -42,7 +45,8 @@ class Embedder:
             except Empty:
                 continue
             embedding = self._process(frame)
-            self.__out_queue.put(embedding)
+            if not self.__pause_event.is_set():
+                self.__out_queue.put(embedding)
         print("Embedder: Thread stopped")
 
     def _load_rknn(self, model_weights: str):

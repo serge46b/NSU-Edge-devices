@@ -8,6 +8,7 @@ import cv2.typing as cv2t
 import cv2
 import numpy as np
 from time import monotonic
+from tmpwebrtc import imshow, start, stop
 
 NUM_DETECTORS = 1
 NUM_EMBEDDERS = 1
@@ -15,6 +16,8 @@ FILTER_HEIGHT_PERCENT = 0.5
 COMPARISON_THRESHOLD = 0.5
 CAMERA_DEVICE = "/dev/video20"
 EMBEDDING_COLLECTION_TIMEOUT = 10
+TIME_BETWEEN_FRAMES = 0.1
+EMBEDDINGS_AMOUNT = 5
 
 if __name__ == "__main__":
     print("Main: Starting...")
@@ -27,18 +30,18 @@ if __name__ == "__main__":
     detector_threads = []
     for i in range(NUM_DETECTORS):
         detectors.append(
-            Detector(frames_queue, faces_queue, stop_event, FILTER_HEIGHT_PERCENT)
+            Detector(frames_queue, faces_queue, stop_event, device_response_event, FILTER_HEIGHT_PERCENT)
         )
-        detector_threads.append(
-            Thread(target=detectors[i].run, args=(frames_queue, faces_queue))
-        )
+        thread = Thread(target=detectors[i].run)
+        thread.start()
+        detector_threads.append(thread)
     embedders = []
     embedder_threads = []
     for i in range(NUM_EMBEDDERS):
-        embedders.append(Embedder(faces_queue, embeddings_queue, stop_event))
-        embedder_threads.append(
-            Thread(target=embedders[i].run, args=(faces_queue, embeddings_queue))
-        )
+        embedders.append(Embedder(faces_queue, embeddings_queue, stop_event, device_response_event))
+        thread = Thread(target=embedders[i].run)
+        thread.start()
+        embedder_threads.append(thread)
     opener = Opener(device_response_event, stop_event)
     comparator = Comparator(COMPARISON_THRESHOLD)
     cap = cv2.VideoCapture(CAMERA_DEVICE)
@@ -46,15 +49,19 @@ if __name__ == "__main__":
         raise RuntimeError(f"Main: Failed to open camera {CAMERA_DEVICE}")
     start_detection_time = None
     collected_embeddings = []
+    last_frame_time = monotonic()
     try:
+        start()
         while not stop_event.is_set():
             ret, frame = cap.read()
             if not ret:
                 print("Main: Failed to read frame")
                 stop_event.set()
                 break
-            if device_response_event.is_set():
+            if device_response_event.is_set() or monotonic() - last_frame_time < TIME_BETWEEN_FRAMES:
                 continue
+            imshow(frame)
+            last_frame_time = monotonic()
             try:
                 frames_queue.put_nowait(frame)
             except Full:
@@ -72,17 +79,18 @@ if __name__ == "__main__":
                     collected_embeddings = []
                     opener.run_command("NOT_RECOGNIZED")
                 continue
-            opener.run_command("PENDING")
+            if len(collected_embeddings) == 0:
+                opener.run_command("PENDING")
             start_detection_time = monotonic()
             collected_embeddings.append(embedding)
-            if len(collected_embeddings) < 5:
+            if len(collected_embeddings) < EMBEDDINGS_AMOUNT:
                 continue
             while not frames_queue.empty():
-                data = frames_queue.get_nowait()
+                _ = frames_queue.get_nowait()
             while not faces_queue.empty():
-                data = faces_queue.get_nowait()
+                _ = faces_queue.get_nowait()
             while not embeddings_queue.empty():
-                data = embeddings_queue.get_nowait()
+                _ = embeddings_queue.get_nowait()
             name = comparator.find_person(collected_embeddings)
             start_detection_time = None
             collected_embeddings = []
@@ -93,7 +101,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         stop_event.set()
     finally:
+        stop()
         cap.release()
         for thread in detector_threads + embedder_threads:
             thread.join()
-    print("Main: Stopped")
+        print("Main: Stopped")

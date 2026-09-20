@@ -19,6 +19,8 @@ class Detector:
     __yolo_model: RKNNLite | None = None
     __in_queue: Queue[cv2t.MatLike]
     __out_queue: Queue[cv2t.MatLike]
+    __stop_event: Event
+    __pause_event: Event
     __filter_height_percent: float
 
     def __init__(
@@ -26,11 +28,13 @@ class Detector:
         in_queue: Queue[cv2t.MatLike],
         out_queue: Queue[cv2t.MatLike],
         stop_event: Event,
+        pause_event: Event,
         filter_height_percent: float,
     ):
         self.__in_queue = in_queue
         self.__out_queue = out_queue
         self.__stop_event = stop_event
+        self.__pause_event = pause_event
         self.__yolo_model = self._load_model(MODEL_WEIGHTS)
         self.__filter_height_percent = filter_height_percent
 
@@ -47,7 +51,7 @@ class Detector:
                 except Empty:
                     continue
                 cropped = self._process_frame(frame)
-                if cropped is not None:
+                if cropped is not None and not self.__pause_event.is_set():
                     self.__out_queue.put(cropped)
             except Exception as e:
                 print(f"Detector: Error processing frame: {e}")

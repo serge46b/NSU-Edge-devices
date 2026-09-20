@@ -78,7 +78,7 @@ class Opener:
             raise ValueError("Opener: RESET command failed")
 
     def _wait_for_line(self, expected: str) -> bool:
-        line = self.__device.read(self.__device.in_waiting).decode("utf-8").strip()
+        line = self.__device.readline().decode("utf-8").strip()
         if line != expected:
             return False
         return True

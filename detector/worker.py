@@ -15,7 +15,7 @@ HERE = Path(__file__).resolve().parent
 MODEL_WEIGHTS = f"{HERE}/yolov12n-face-rk3588-fp16.rknn"
 
 
-class DetectorWorker:
+class Detector:
     __yolo_model: RKNNLite | None = None
     __in_queue: Queue[cv2t.MatLike]
     __out_queue: Queue[cv2t.MatLike]
@@ -34,8 +34,12 @@ class DetectorWorker:
         self.__yolo_model = self._load_model(MODEL_WEIGHTS)
         self.__filter_height_percent = filter_height_percent
 
+    def __del__(self):
+        if self.__yolo_model:
+            self.__yolo_model.release()
+
     def run(self):
-        print("DetectorWorker started")
+        print("Detector: Thread started")
         while not self.__stop_event.is_set():
             try:
                 try:
@@ -46,23 +50,21 @@ class DetectorWorker:
                 if cropped is not None:
                     self.__out_queue.put(cropped)
             except Exception as e:
-                print(f"Error processing frame: {e}")
+                print(f"Detector: Error processing frame: {e}")
                 continue
-            # finally:
-            #     self.__in_queue.task_done()
-        print("DetectorWorker stopped")
+        print("Detector: Thread stopped")
 
     def _load_model(self, model_weights: str):
         rknn = RKNNLite(verbose=False)
         if rknn.load_rknn(str(model_weights)) != 0:
-            raise RuntimeError(f"load_rknn failed: {model_weights}")
+            raise RuntimeError(f"Detector: load_rknn failed: {model_weights}")
         if rknn.init_runtime(core_mask=RKNNLite.NPU_CORE_AUTO) != 0:
-            raise RuntimeError(f"init_runtime failed: {model_weights}")
+            raise RuntimeError(f"Detector: init_runtime failed: {model_weights}")
         return rknn
 
     def _process_frame(self, frame: cv2t.MatLike):
         if not self.__yolo_model:
-            raise RuntimeError("Yolo model not loaded")
+            raise RuntimeError("Detector: Yolo model not loaded")
         h0, w0 = frame.shape[:2]
         model_bgr = cv2.resize(frame, (INPUT_SIZE, INPUT_SIZE))
         rgb = cv2.cvtColor(model_bgr, cv2.COLOR_BGR2RGB)
@@ -83,7 +85,7 @@ class DetectorWorker:
         y1 = max(0, min(y1, h0 - 1))
         x2 = max(0, min(x2, w0 - 1))
         y2 = max(0, min(y2, h0 - 1))
-   
+
         cropped = frame[y1:y2, x1:x2]
         return cropped
 

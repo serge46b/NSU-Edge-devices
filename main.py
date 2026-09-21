@@ -28,35 +28,34 @@ if __name__ == "__main__":
     embeddings_queue = Queue(maxsize=5)
     detectors = []
     detector_threads = []
-    for i in range(NUM_DETECTORS):
-        detectors.append(
-            Detector(frames_queue, faces_queue, stop_event, device_response_event, FILTER_HEIGHT_PERCENT)
-        )
-        thread = Thread(target=detectors[i].run)
-        thread.start()
-        detector_threads.append(thread)
-    embedders = []
-    embedder_threads = []
-    for i in range(NUM_EMBEDDERS):
-        embedders.append(Embedder(faces_queue, embeddings_queue, stop_event, device_response_event))
-        thread = Thread(target=embedders[i].run)
-        thread.start()
-        embedder_threads.append(thread)
-    opener = Opener(device_response_event, stop_event)
-    comparator = Comparator(COMPARISON_THRESHOLD)
-    cap = cv2.VideoCapture(CAMERA_DEVICE)
-    if not cap.isOpened():
-        raise RuntimeError(f"Main: Failed to open camera {CAMERA_DEVICE}")
-    start_detection_time = None
-    collected_embeddings = []
-    last_frame_time = monotonic()
     try:
+        for i in range(NUM_DETECTORS):
+            detectors.append(
+                Detector(frames_queue, faces_queue, stop_event, device_response_event, FILTER_HEIGHT_PERCENT)
+            )
+            thread = Thread(target=detectors[i].run)
+            thread.start()
+            detector_threads.append(thread)
+        embedders = []
+        embedder_threads = []
+        for i in range(NUM_EMBEDDERS):
+            embedders.append(Embedder(faces_queue, embeddings_queue, stop_event, device_response_event))
+            thread = Thread(target=embedders[i].run)
+            thread.start()
+            embedder_threads.append(thread)
+        opener = Opener(device_response_event, stop_event)
+        comparator = Comparator(COMPARISON_THRESHOLD)
+        cap = cv2.VideoCapture(CAMERA_DEVICE)
+        if not cap.isOpened():
+            raise RuntimeError(f"Main: Failed to open camera {CAMERA_DEVICE}")
+        start_detection_time = None
+        collected_embeddings = []
+        last_frame_time = monotonic()
         start()
         while not stop_event.is_set():
             ret, frame = cap.read()
             if not ret:
                 print("Main: Failed to read frame")
-                stop_event.set()
                 break
             if device_response_event.is_set() or monotonic() - last_frame_time < TIME_BETWEEN_FRAMES:
                 continue
@@ -95,12 +94,16 @@ if __name__ == "__main__":
             start_detection_time = None
             collected_embeddings = []
             if name:
+                print(f"Main: Recognized as {name}")
                 opener.run_command("OK")
             else:
                 opener.run_command("NOT_RECOGNIZED")
     except KeyboardInterrupt:
         stop_event.set()
+    except Exception as e:
+        print(f"Main: Error: {e}")
     finally:
+        stop_event.set()
         stop()
         cap.release()
         for thread in detector_threads + embedder_threads:
